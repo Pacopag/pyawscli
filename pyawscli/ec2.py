@@ -163,6 +163,8 @@ class EC2:
 			name_prefix = instance_id
 		name = name_prefix+'-'+self.client.create_stamp()
 		args = ['create-image', '--instance-id', instance_id, '--name', name]
+		if no_reboot:
+			args = args+['--no-reboot']
 		args = self.prepare_args(args, region, profile)
 		res = self.client.execute(args, region=region, profile=profile)
 		if wait_for_state:
