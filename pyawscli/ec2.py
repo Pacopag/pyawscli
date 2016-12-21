@@ -67,6 +67,10 @@ class EC2:
 		snapshots = self.snapshots(region=region, profile=profile)
 		return [s for s in snapshots if s[key]==val]
 
+	def snapshot_by_id(self, snapshot_id, region=None, profile=None):
+		snapshots = self.snapshots_by('SnapshotId', snapshot_id, region=region, profile=profile)
+		return snapshots[0] if len(snapshots) else None
+
 	def volumes(self, region=None, profile=None):
 		args = ['describe-volumes']
 		args = self.prepare_args(args, region, profile)
@@ -84,19 +88,34 @@ class EC2:
 		volumes = [v for v in volumes if v['DeviceName']==name]
 		return volumes[0] if len(volumes) else None
 
-	def create_snapshot(self, volume_id, description=None, region=None, profile=None):
+	def create_snapshot(self, volume_id, description=None, wait=False, timeout=300, region=None, profile=None):
 		if description is None:
 			description = volume_id+'-'+self.client.create_stamp()
 		args = ['create-snapshot']
 		args = self.prepare_args(args, region, profile)
 		args = args + ['--volume-id', volume_id, '--description', description]
-		return self.client.execute(args, region=region, profile=profile)
+		res = self.client.execute(args, region=region, profile=profile)
+		if wait:
+			res = self.wait_for_snapshot(res, timeout)
+		return res
 
-	def create_snapshot_of_instance_volume(self, instance, volume_name, description=None, region=None, profile=None):
+	def wait_for_snapshot(self, snapshot, timeout, profile=None, region=None):
+		snapshot_id = snapshot if isinstance(snapshot, str) else snapshot['SnapshotId']
+		profile = profile if profile is not None else self.client.profile
+		region = region if region is not None else self.client.region
+		then = time.time()
+		while True:
+			now = time.time()
+			snapshot = self.snapshot_by_id(snapshot_id, region=region, profile=profile)
+			if snapshot['State'].lower()!='pending' or now-then>timeout:
+				return snapshot
+			time.sleep(5)
+
+	def create_snapshot_of_instance_volume(self, instance, volume_name, description=None, wait=False, timeout=300, region=None, profile=None):
 		instance_id = instance if isinstance(instance, str) else instance['InstanceId']
 		volume = self.instance_volume_by_name(instance_id, volume_name, region=region, profile=profile)
 		volume_id = volume['Ebs']['VolumeId']
-		return self.create_snapshot(volume_id, description=description, region=region, profile=profile)
+		return self.create_snapshot(volume_id, description=description, wait=wait, timeout=timeout, region=region, profile=profile)
 
 	def delete_snapshot(self, snapshot, region=None, profile=None):
 		snapshot_id = snapshot if isinstance(snapshot, str) else snapshot['SnapshotId']
